@@ -23,23 +23,28 @@ export class PneumoniaDetector {
       this.isModelLoading = true;
       
       // Load the model from the public directory
-      // Note: You need to place your trained model in the public/model directory
       console.log('Loading pneumonia detection model...');
-      this.model = await tf.loadLayersModel('/model/model.json');
-      
-      // If model loading fails, use the dummy model as fallback
-      if (!this.model) {
-        console.log('Failed to load model, using fallback model');
+      // First try to load the actual model
+      try {
+        this.model = await tf.loadLayersModel('/model/model.json');
+        console.log('Model loaded successfully');
+      } catch (error) {
+        console.error('Error loading model:', error);
+        console.log('Using fallback model instead');
         this.model = await this.createDummyModel();
       }
       
-      console.log('Model loaded successfully');
       return true;
     } catch (error) {
-      console.error('Error loading model:', error);
-      console.log('Using fallback model instead');
-      this.model = await this.createDummyModel();
-      return this.model !== null;
+      console.error('Error in loadModel process:', error);
+      console.log('Creating fallback model as last resort');
+      try {
+        this.model = await this.createDummyModel();
+        return this.model !== null;
+      } catch (fallbackError) {
+        console.error('Failed to create fallback model:', fallbackError);
+        return false;
+      }
     } finally {
       this.isModelLoading = false;
     }
@@ -61,11 +66,11 @@ export class PneumoniaDetector {
     model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
     model.add(tf.layers.flatten());
     model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 2, activation: 'softmax' }));
+    model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' })); // Binary classification: 0 for Normal, 1 for Pneumonia
     
     model.compile({
       optimizer: 'adam',
-      loss: 'sparseCategoricalCrossentropy',
+      loss: 'binaryCrossentropy',
       metrics: ['accuracy']
     });
     
@@ -123,6 +128,8 @@ export class PneumoniaDetector {
             
             // Make prediction
             const predictions = this.model!.predict(tensorInput) as tf.Tensor;
+            
+            // Get the predicted probability
             const probabilities = await predictions.data();
             
             // Clean up tensors
@@ -130,22 +137,21 @@ export class PneumoniaDetector {
             predictions.dispose();
             URL.revokeObjectURL(img.src);
             
-            // Get prediction (model returns probabilities for each class)
-            // Index 0 for Normal, Index 1 for Pneumonia if using softmax output
-            // If using sigmoid output, the value represents the probability of pneumonia
-            const confidencePneumonia = probabilities[0];
-            const isPneumonia = confidencePneumonia > 0.5;
+            // In a binary classification model with sigmoid output:
+            // - Value close to 0 means Normal
+            // - Value close to 1 means Pneumonia
+            const pneumoniaProbability = probabilities[0];
             
-            if (isPneumonia) {
+            if (pneumoniaProbability > 0.5) {
               resolve({
                 prediction: 'Pneumonia',
-                confidence: confidencePneumonia,
+                confidence: pneumoniaProbability,
                 success: true
               });
             } else {
               resolve({
                 prediction: 'Normal',
-                confidence: 1 - confidencePneumonia,
+                confidence: 1 - pneumoniaProbability,
                 success: true
               });
             }
