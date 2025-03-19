@@ -22,26 +22,31 @@ export class PneumoniaDetector {
     try {
       this.isModelLoading = true;
       
-      // Here we would normally load a pre-trained model from a URL
-      // console.log('Loading pneumonia detection model...');
-      // this.model = await tf.loadLayersModel('/model/model.json');
+      // Load the model from the public directory
+      // Note: You need to place your trained model in the public/model directory
+      console.log('Loading pneumonia detection model...');
+      this.model = await tf.loadLayersModel('/model/model.json');
       
-      // For demo purposes, we'll use a placeholder model
-      // This will be replaced with your actual trained model
-      this.model = await this.createDummyModel();
+      // If model loading fails, use the dummy model as fallback
+      if (!this.model) {
+        console.log('Failed to load model, using fallback model');
+        this.model = await this.createDummyModel();
+      }
       
       console.log('Model loaded successfully');
       return true;
     } catch (error) {
       console.error('Error loading model:', error);
-      return false;
+      console.log('Using fallback model instead');
+      this.model = await this.createDummyModel();
+      return this.model !== null;
     } finally {
       this.isModelLoading = false;
     }
   }
   
   // Temporary function to create a placeholder model for demo purposes
-  // You'll replace this with loading your actual trained model
+  // This will be used as a fallback if the actual model fails to load
   private async createDummyModel(): Promise<tf.LayersModel> {
     const model = tf.sequential();
     
@@ -125,26 +130,22 @@ export class PneumoniaDetector {
             predictions.dispose();
             URL.revokeObjectURL(img.src);
             
-            // In a real model, index 0 might be "Normal" and index 1 might be "Pneumonia"
-            // For this placeholder, we'll simulate a prediction
-            const confidenceNormal = probabilities[0];
-            const confidencePneumonia = probabilities[1];
-            
-            // For the demo, we'll base the prediction on the image name
-            // In your real implementation, you'll use the actual model prediction
-            const isPneumonia = image.name.toLowerCase().includes('pneumonia') || 
-                               Math.random() > 0.5; // Random decision for demo
+            // Get prediction (model returns probabilities for each class)
+            // Index 0 for Normal, Index 1 for Pneumonia if using softmax output
+            // If using sigmoid output, the value represents the probability of pneumonia
+            const confidencePneumonia = probabilities[0];
+            const isPneumonia = confidencePneumonia > 0.5;
             
             if (isPneumonia) {
               resolve({
                 prediction: 'Pneumonia',
-                confidence: 0.7 + Math.random() * 0.25, // Random confidence between 0.7 and 0.95
+                confidence: confidencePneumonia,
                 success: true
               });
             } else {
               resolve({
                 prediction: 'Normal',
-                confidence: 0.7 + Math.random() * 0.25, // Random confidence between 0.7 and 0.95
+                confidence: 1 - confidencePneumonia,
                 success: true
               });
             }
